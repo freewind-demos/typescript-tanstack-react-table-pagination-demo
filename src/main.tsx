@@ -5,13 +5,15 @@ import './index.css'
 
 import {
   createTable,
-  GroupingState,
+  Column,
+  TableInstance,
+  PaginationState,
   useTableInstance,
-  getPaginationRowModel,
-  getFilteredRowModel,
   getCoreRowModel,
-  getGroupedRowModel,
-  getExpandedRowModel,
+  getFilteredRowModel,
+  getPaginationRowModel,
+  ColumnDef,
+  OnChangeFn,
 } from '@tanstack/react-table'
 import { makeData, Person } from './makeData'
 
@@ -24,45 +26,42 @@ function App() {
     () => [
       table.createGroup({
         header: 'Name',
+        footer: props => props.column.id,
         columns: [
           table.createDataColumn('firstName', {
-            header: 'First Name',
             cell: info => info.getValue(),
+            footer: props => props.column.id,
           }),
           table.createDataColumn(row => row.lastName, {
             id: 'lastName',
-            header: () => <span>Last Name</span>,
             cell: info => info.getValue(),
+            header: () => <span>Last Name</span>,
+            footer: props => props.column.id,
           }),
         ],
       }),
       table.createGroup({
         header: 'Info',
+        footer: props => props.column.id,
         columns: [
           table.createDataColumn('age', {
             header: () => 'Age',
-            aggregatedCell: ({ getValue }) =>
-              Math.round(getValue() * 100) / 100,
-            aggregationFn: 'median',
+            footer: props => props.column.id,
           }),
           table.createGroup({
             header: 'More Info',
             columns: [
               table.createDataColumn('visits', {
                 header: () => <span>Visits</span>,
-                aggregationFn: 'sum',
-                // aggregatedCell: ({ getValue }) => getValue().toLocaleString(),
+                footer: props => props.column.id,
               }),
               table.createDataColumn('status', {
                 header: 'Status',
+                footer: props => props.column.id,
               }),
               table.createDataColumn('progress', {
                 header: 'Profile Progress',
-                cell: ({ getValue }) =>
-                  Math.round(getValue() * 100) / 100 + '%',
-                aggregationFn: 'mean',
-                aggregatedCell: ({ getValue }) =>
-                  Math.round(getValue() * 100) / 100 + '%',
+                footer: props => props.column.id,
               }),
             ],
           }),
@@ -75,20 +74,56 @@ function App() {
   const [data, setData] = React.useState(() => makeData(100000))
   const refreshData = () => setData(() => makeData(100000))
 
-  const [grouping, setGrouping] = React.useState<GroupingState>([])
+  const [pagination, setPagination] = React.useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 10,
+  })
 
+  return (
+    <>
+      <Table
+        {...{
+          data,
+          columns,
+          pagination,
+          setPagination,
+        }}
+      />
+      <hr />
+      <div>
+        <button onClick={() => rerender()}>Force Rerender</button>
+      </div>
+      <div>
+        <button onClick={() => refreshData()}>Refresh Data</button>
+      </div>
+      <pre>{JSON.stringify(pagination, null, 2)}</pre>
+    </>
+  )
+}
+
+function Table({
+                 data,
+                 columns,
+                 pagination,
+                 setPagination,
+               }: {
+  data: Person[]
+  columns: ColumnDef<typeof table.generics>[]
+  pagination: PaginationState
+  setPagination: OnChangeFn<PaginationState>
+}) {
   const instance = useTableInstance(table, {
     data,
     columns,
     state: {
-      grouping,
+      pagination,
     },
-    onGroupingChange: setGrouping,
-    getExpandedRowModel: getExpandedRowModel(),
-    getGroupedRowModel: getGroupedRowModel(),
+    onPaginationChange: setPagination,
+    // Pipeline
     getCoreRowModel: getCoreRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
+    //
     debugTable: true,
   })
 
@@ -104,22 +139,15 @@ function App() {
                 <th key={header.id} colSpan={header.colSpan}>
                   {header.isPlaceholder ? null : (
                     <div>
-                      {header.column.getCanGroup() ? (
-                        // If the header can be grouped, let's add a toggle
-                        <button
-                          {...{
-                            onClick: header.column.getToggleGroupingHandler(),
-                            style: {
-                              cursor: 'pointer',
-                            },
-                          }}
-                        >
-                          {header.column.getIsGrouped()
-                            ? `🛑(${header.column.getGroupedIndex()}) `
-                            : `👊 `}
-                        </button>
-                      ) : null}{' '}
                       {header.renderHeader()}
+                      {header.column.getCanFilter() ? (
+                        <div>
+                          <Filter
+                            column={header.column}
+                            instance={instance}
+                          />
+                        </div>
+                      ) : null}
                     </div>
                   )}
                 </th>
@@ -133,48 +161,7 @@ function App() {
           return (
             <tr key={row.id}>
               {row.getVisibleCells().map(cell => {
-                return (
-                  <td
-                    {...{
-                      key: cell.id,
-                      style: {
-                        background: cell.getIsGrouped()
-                          ? '#0aff0082'
-                          : cell.getIsAggregated()
-                            ? '#ffa50078'
-                            : cell.getIsPlaceholder()
-                              ? '#ff000042'
-                              : 'white',
-                      },
-                    }}
-                  >
-                    {cell.getIsGrouped() ? (
-                      // If it's a grouped cell, add an expander and row count
-                      <>
-                        <button
-                          {...{
-                            onClick: row.getToggleExpandedHandler(),
-                            style: {
-                              cursor: row.getCanExpand()
-                                ? 'pointer'
-                                : 'normal',
-                            },
-                          }}
-                        >
-                          {row.getIsExpanded() ? '👇' : '👉'}{' '}
-                          {cell.renderCell()} ({row.subRows.length})
-                        </button>
-                      </>
-                    ) : cell.getIsAggregated() ? (
-                      // If the cell is aggregated, use the Aggregated
-                      // renderer for cell
-                      cell.renderAggregatedCell()
-                    ) : cell.getIsPlaceholder() ? null : ( // For cells with repeated values, render null
-                      // Otherwise, just render the regular cell
-                      cell.renderCell()
-                    )}
-                  </td>
-                )
+                return <td key={cell.id}>{cell.renderCell()}</td>
               })}
             </tr>
           )
@@ -244,14 +231,57 @@ function App() {
         </select>
       </div>
       <div>{instance.getRowModel().rows.length} Rows</div>
-      <div>
-        <button onClick={() => rerender()}>Force Rerender</button>
-      </div>
-      <div>
-        <button onClick={() => refreshData()}>Refresh Data</button>
-      </div>
-      <pre>{JSON.stringify(grouping, null, 2)}</pre>
     </div>
+  )
+}
+function Filter({
+                  column,
+                  instance,
+                }: {
+  column: Column<any>
+  instance: TableInstance<any>
+}) {
+  const firstValue = instance
+    .getPreFilteredRowModel()
+    .flatRows[0]?.getValue(column.id)
+
+  const columnFilterValue = column.getFilterValue()
+
+  return typeof firstValue === 'number' ? (
+    <div className="flex space-x-2">
+      <input
+        type="number"
+        value={(columnFilterValue as [number, number])?.[0] ?? ''}
+        onChange={e =>
+          column.setFilterValue((old: [number, number]) => [
+            e.target.value,
+            old?.[1],
+          ])
+        }
+        placeholder={`Min`}
+        className="w-24 border shadow rounded"
+      />
+      <input
+        type="number"
+        value={(columnFilterValue as [number, number])?.[1] ?? ''}
+        onChange={e =>
+          column.setFilterValue((old: [number, number]) => [
+            old?.[0],
+            e.target.value,
+          ])
+        }
+        placeholder={`Max`}
+        className="w-24 border shadow rounded"
+      />
+    </div>
+  ) : (
+    <input
+      type="text"
+      value={(columnFilterValue ?? '') as string}
+      onChange={e => column.setFilterValue(e.target.value)}
+      placeholder={`Search...`}
+      className="w-36 border shadow rounded"
+    />
   )
 }
 

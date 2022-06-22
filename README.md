@@ -1,4 +1,4 @@
-TypeScript React Table Fully Controlled Demo
+TypeScript React Table Pagination Demo
 ===========================================
 
 ```
