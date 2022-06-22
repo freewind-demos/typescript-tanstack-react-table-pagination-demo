@@ -1,21 +1,22 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 
+import { QueryClient, QueryClientProvider, useQuery } from 'react-query'
+
 import './index.css'
 
 import {
   createTable,
-  Column,
-  TableInstance,
   PaginationState,
   useTableInstance,
   getCoreRowModel,
-  getFilteredRowModel,
-  getPaginationRowModel,
-  ColumnDef,
-  OnChangeFn,
 } from '@tanstack/react-table'
-import { makeData, Person } from './makeData'
+
+//
+
+import { fetchData, Person } from './fetchData'
+
+const queryClient = new QueryClient()
 
 let table = createTable().setRowType<Person>()
 
@@ -71,59 +72,44 @@ function App() {
     []
   )
 
-  const [data, setData] = React.useState(() => makeData(100000))
-  const refreshData = () => setData(() => makeData(100000))
+  const [{ pageIndex, pageSize }, setPagination] =
+    React.useState<PaginationState>({
+      pageIndex: 0,
+      pageSize: 10,
+    })
 
-  const [pagination, setPagination] = React.useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 10,
-  })
+  const fetchDataOptions = {
+    pageIndex,
+    pageSize,
+  }
 
-  return (
-    <>
-      <Table
-        {...{
-          data,
-          columns,
-          pagination,
-          setPagination,
-        }}
-      />
-      <hr />
-      <div>
-        <button onClick={() => rerender()}>Force Rerender</button>
-      </div>
-      <div>
-        <button onClick={() => refreshData()}>Refresh Data</button>
-      </div>
-      <pre>{JSON.stringify(pagination, null, 2)}</pre>
-    </>
+  const dataQuery = useQuery(
+    ['data', fetchDataOptions],
+    () => fetchData(fetchDataOptions),
+    { keepPreviousData: true }
   )
-}
 
-function Table({
-                 data,
-                 columns,
-                 pagination,
-                 setPagination,
-               }: {
-  data: Person[]
-  columns: ColumnDef<typeof table.generics>[]
-  pagination: PaginationState
-  setPagination: OnChangeFn<PaginationState>
-}) {
+  const defaultData = React.useMemo(() => [], [])
+
+  const pagination = React.useMemo(
+    () => ({
+      pageIndex,
+      pageSize,
+    }),
+    [pageIndex, pageSize]
+  )
+
   const instance = useTableInstance(table, {
-    data,
+    data: dataQuery.data?.rows ?? defaultData,
     columns,
+    pageCount: dataQuery.data?.pageCount ?? -1,
     state: {
       pagination,
     },
     onPaginationChange: setPagination,
-    // Pipeline
     getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    //
+    manualPagination: true,
+    // getPaginationRowModel: getPaginationRowModel(), // If only doing manual pagination, you don't need this
     debugTable: true,
   })
 
@@ -138,17 +124,7 @@ function Table({
               return (
                 <th key={header.id} colSpan={header.colSpan}>
                   {header.isPlaceholder ? null : (
-                    <div>
-                      {header.renderHeader()}
-                      {header.column.getCanFilter() ? (
-                        <div>
-                          <Filter
-                            column={header.column}
-                            instance={instance}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
+                    <div>{header.renderHeader()}</div>
                   )}
                 </th>
               )
@@ -229,65 +205,22 @@ function Table({
             </option>
           ))}
         </select>
+        {dataQuery.isFetching ? 'Loading...' : null}
       </div>
       <div>{instance.getRowModel().rows.length} Rows</div>
+      <div>
+        <button onClick={() => rerender()}>Force Rerender</button>
+      </div>
+      <pre>{JSON.stringify(pagination, null, 2)}</pre>
     </div>
-  )
-}
-function Filter({
-                  column,
-                  instance,
-                }: {
-  column: Column<any>
-  instance: TableInstance<any>
-}) {
-  const firstValue = instance
-    .getPreFilteredRowModel()
-    .flatRows[0]?.getValue(column.id)
-
-  const columnFilterValue = column.getFilterValue()
-
-  return typeof firstValue === 'number' ? (
-    <div className="flex space-x-2">
-      <input
-        type="number"
-        value={(columnFilterValue as [number, number])?.[0] ?? ''}
-        onChange={e =>
-          column.setFilterValue((old: [number, number]) => [
-            e.target.value,
-            old?.[1],
-          ])
-        }
-        placeholder={`Min`}
-        className="w-24 border shadow rounded"
-      />
-      <input
-        type="number"
-        value={(columnFilterValue as [number, number])?.[1] ?? ''}
-        onChange={e =>
-          column.setFilterValue((old: [number, number]) => [
-            old?.[0],
-            e.target.value,
-          ])
-        }
-        placeholder={`Max`}
-        className="w-24 border shadow rounded"
-      />
-    </div>
-  ) : (
-    <input
-      type="text"
-      value={(columnFilterValue ?? '') as string}
-      onChange={e => column.setFilterValue(e.target.value)}
-      placeholder={`Search...`}
-      className="w-36 border shadow rounded"
-    />
   )
 }
 
 ReactDOM.render(
   <React.StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <App />
+    </QueryClientProvider>
   </React.StrictMode>,
   document.getElementById('root')
 )
